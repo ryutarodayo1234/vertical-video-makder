@@ -1,9 +1,7 @@
 :root {
   --bg-primary: #0a0d14;
   --bg-card: rgba(22, 27, 40, 0.7);
-  --bg-card-hover: rgba(30, 38, 56, 0.85);
   --border-color: rgba(255, 255, 255, 0.08);
-  --border-focus: #6366f1;
   --primary: #6366f1;
   --primary-hover: #4f46e5;
   --primary-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
@@ -37,7 +35,7 @@ body {
 
 .app-container {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1100px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -88,6 +86,7 @@ body {
   padding: 6px 16px;
   font-size: 13px;
   border-radius: 20px;
+  cursor: pointer;
 }
 
 .btn-demo:hover {
@@ -99,12 +98,12 @@ body {
 /* メインコンテンツレイアウト */
 .main-content {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: 1fr 1fr;
   gap: 24px;
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 800px) {
   .main-content {
     grid-template-columns: 1fr;
   }
@@ -121,61 +120,45 @@ body {
 }
 
 .panel-section h2 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: #e2e8f0;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  margin-bottom: 14px;
 }
 
-/* スロットカード */
-.slots-container {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.slot-card {
+/* アップロードカード */
+.upload-card {
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 14px;
-  transition: all 0.2s ease;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.slot-card:hover {
-  border-color: rgba(99, 102, 241, 0.4);
+.upload-card.loaded {
+  border-color: rgba(16, 185, 129, 0.4);
 }
 
-.slot-card.loaded {
-  border-color: rgba(16, 185, 129, 0.5);
-  background: rgba(16, 185, 129, 0.05);
-}
-
-.slot-header {
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
   font-size: 13px;
 }
 
-.slot-badge {
-  background: rgba(255, 255, 255, 0.07);
-  padding: 2px 10px;
+.file-status {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px 10px;
   border-radius: 20px;
-  font-weight: 600;
   color: #93c5fd;
+  font-weight: 500;
 }
 
-.slot-filename {
+.file-info {
   color: var(--text-muted);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12px;
 }
 
 /* ドロップゾーン */
@@ -183,11 +166,10 @@ body {
   display: block;
   border: 2px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-sm);
-  padding: 18px 12px;
+  padding: 32px 16px;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s ease;
-  position: relative;
 }
 
 .drop-zone:hover, .drop-zone.dragover {
@@ -201,30 +183,27 @@ body {
 
 .drop-content {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 14px;
   pointer-events: none;
 }
 
-.drop-zone:hover .drop-content {
-  color: #c7d2fe;
+.drop-hint {
+  font-size: 12px;
+  color: #818cf8;
 }
 
-/* スロットコントロール（音量） */
-.slot-controls {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.control-row {
+/* 音量コントロール */
+.audio-control-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -237,9 +216,9 @@ body {
 .mute-btn {
   background: transparent;
   border: none;
-  font-size: 15px;
+  font-size: 16px;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 4px 8px;
   border-radius: 4px;
 }
 
@@ -247,19 +226,7 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* 出力設定 */
-.settings-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-
-@media (max-width: 500px) {
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
+/* 設定 */
 .setting-item {
   display: flex;
   flex-direction: column;
@@ -269,7 +236,6 @@ body {
 .setting-item label {
   font-size: 12px;
   color: var(--text-muted);
-  font-weight: 500;
 }
 
 .setting-item select {
@@ -283,11 +249,7 @@ body {
   cursor: pointer;
 }
 
-.setting-item select:focus {
-  border-color: var(--primary);
-}
-
-/* 右カラム: プレビュー */
+/* プレビュー */
 .preview-panel {
   display: flex;
   flex-direction: column;
@@ -301,7 +263,6 @@ body {
   justify-content: center;
 }
 
-/* スマホ型プレビューフレーム (9:16) */
 .phone-frame {
   width: 270px;
   height: 480px;
@@ -311,8 +272,6 @@ body {
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
   position: relative;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .phone-notch {
@@ -332,9 +291,6 @@ body {
   width: 100%;
   height: 100%;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 #preview-canvas {
@@ -371,7 +327,7 @@ body {
 /* プレビューコントロール */
 .preview-controls {
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -383,8 +339,6 @@ body {
 
 .timeline-bar {
   flex: 1;
-  display: flex;
-  align-items: center;
 }
 
 #seek-bar {
@@ -401,10 +355,10 @@ body {
   text-align: right;
 }
 
-/* アクションカード & ボタン */
+/* アクションボタン */
 .action-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
   display: flex;
   flex-direction: column;
   gap: 12px;
