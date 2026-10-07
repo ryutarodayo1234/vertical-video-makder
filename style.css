@@ -249,6 +249,20 @@ body {
   cursor: pointer;
 }
 
+.setting-hint {
+  display: block;
+  font-size: 11px;
+  color: #6366f1;
+  margin-top: 2px;
+  font-weight: 400;
+}
+
+#blur-height-slider {
+  width: 100%;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
 /* プレビュー */
 .preview-panel {
   display: flex;

@@ -63,6 +63,12 @@
               <option value="720x1280">720 × 1280 (HD 高速)</option>
             </select>
           </div>
+          <div class="setting-item">
+            <label for="blur-height-slider">下部ぼかしエリアの高さ <span id="blur-height-val">400</span>px
+              <span class="setting-hint">（プラットフォームのタイトル表示エリア）</span>
+            </label>
+            <input type="range" id="blur-height-slider" min="100" max="700" step="10" value="400">
+          </div>
         </div>
       </section>
 
@@ -75,7 +81,7 @@
               <canvas id="preview-canvas" width="1080" height="1920"></canvas>
               <div class="placeholder-overlay" id="placeholder-overlay">
                 <div class="guide-box">
-                  <p>動画をセットすると<br>3段スタックの9:16プレビューが<br>表示されます</p>
+                  <p>動画をセットすると<br>上3段クリア＋下部ぼかし背景の<br>9:16プレビューが表示されます</p>
                 </div>
               </div>
             </div>

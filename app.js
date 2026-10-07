@@ -407,11 +407,7 @@
     // MP4マルチプレクサの作成 (FastStart: Apple写真アプリで即座に認識される構造)
     const muxer = new Mp4Muxer.Muxer({
       target: new Mp4Muxer.ArrayBufferTarget(),
-      video: {
-        codec: 'avc',
-        width: w,
-        height: h
-      },
+      video: { codec: 'avc', width: w, height: h },
       audio: hasAudio ? {
         codec: 'aac',
         numberOfChannels: Math.min(2, audioBuffer.numberOfChannels),
@@ -425,18 +421,15 @@
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: (e) => console.error('VideoEncoder error:', e)
     });
-
-    // 互換性の高いコーデック設定 (Baseline/Main Profile)
-    const videoConfig = {
+    videoEncoder.configure({
       codec: 'avc1.420034',
       width: w,
       height: h,
       bitrate: w >= 1080 ? 10_000_000 : 5_000_000,
       framerate: fps
-    };
-    videoEncoder.configure(videoConfig);
+    });
 
-    // 音声エンコーダーの初期化とエンコード
+    // 音声エンコーダーとエンコード（映像より先に処理）
     if (hasAudio) {
       try {
         const audioEncoder = new AudioEncoder({
@@ -476,22 +469,36 @@
       }
     }
 
-    // コマ送り（フレーム・バイ・フレーム）レンダリング
-    progressStatus.textContent = 'コマ送りレンダリング中 (ガタつきなし)...';
+    // OffscreenCanvas でバックグラウンドレンダリング（プレビューに影響なし）
+    const offscreen = new OffscreenCanvas(w, h);
+    const offCtx = offscreen.getContext('2d');
+
+    progressStatus.textContent = 'バックグラウンドレンダリング中...';
 
     for (let i = 0; i < totalFrames; i++) {
       const t = i / fps;
+
+      // シークして実際のフレームがデコードされるまで待機
       await seekVideo(state.video, t);
-      drawFrame();
+
+      // createImageBitmap でビデオフレームが確実にデコードされたことを保証
+      const bmp = await createImageBitmap(state.video);
+
+      // OffscreenCanvas に描画（プレビューキャンバスとは独立）
+      drawFrameToCtx(offCtx, w, h, bmp);
+      bmp.close();
 
       const timestampMicros = Math.round(t * 1_000_000);
-      const videoFrame = new VideoFrame(canvas, { timestamp: timestampMicros });
+      const videoFrame = new VideoFrame(offscreen, { timestamp: timestampMicros });
       videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
       videoFrame.close();
 
       const pct = Math.floor(((i + 1) / totalFrames) * 100);
       progressFill.style.width = `${pct}%`;
       progressPercent.textContent = `${pct}% (${i + 1}/${totalFrames}コマ)`;
+
+      // UIをブロックしないよう定期的にブレーク
+      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
     progressStatus.textContent = 'MP4ファイル生成中...';
@@ -501,6 +508,58 @@
     const buffer = muxer.target.buffer;
     const mp4Blob = new Blob([buffer], { type: 'video/mp4' });
     onExportComplete(mp4Blob, 'mp4');
+  }
+
+  // ImageBitmap を使ってオフスクリーンに描画（drawFrameの汎用版）
+  function drawFrameToCtx(offCtx, w, h, bmp) {
+    const hVid = (w * 9) / 16;
+    const total3VidHeight = hVid * 3;
+    const blankY = total3VidHeight;
+    const blankH = h - blankY;
+
+    offCtx.fillStyle = '#0a0d14';
+    offCtx.fillRect(0, 0, w, h);
+
+    if (!bmp) return;
+
+    const vidRatio = bmp.width / bmp.height;
+
+    // ぼかし背景（余白部分）
+    if (blankH > 0) {
+      offCtx.save();
+      offCtx.beginPath();
+      offCtx.rect(0, blankY, w, blankH);
+      offCtx.clip();
+      const scale = 1.3;
+      const slotRatio = w / blankH;
+      let bgW, bgH;
+      if (vidRatio > slotRatio) {
+        bgH = blankH * scale;
+        bgW = bgH * vidRatio;
+      } else {
+        bgW = w * scale;
+        bgH = bgW / vidRatio;
+      }
+      const bgX = (w - bgW) / 2;
+      const bgY = blankY + (blankH - bgH) / 2;
+      offCtx.filter = 'blur(25px) brightness(0.65)';
+      offCtx.drawImage(bmp, bgX, bgY, bgW, bgH);
+      offCtx.restore();
+    }
+
+    // 3段クリア動画
+    offCtx.drawImage(bmp, 0, 0, w, hVid);
+    offCtx.drawImage(bmp, 0, hVid, w, hVid);
+    offCtx.drawImage(bmp, 0, hVid * 2, w, hVid);
+
+    // 境界線
+    offCtx.fillStyle = 'rgba(0,0,0,0.4)';
+    offCtx.fillRect(0, hVid - 1, w, 2);
+    offCtx.fillRect(0, hVid * 2 - 1, w, 2);
+    if (blankH > 0) {
+      offCtx.fillStyle = 'rgba(0,0,0,0.5)';
+      offCtx.fillRect(0, blankY - 1, w, 2);
+    }
   }
 
   // フォールバック: MediaRecorderによるリアルタイム録画
