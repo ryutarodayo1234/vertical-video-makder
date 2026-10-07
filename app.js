@@ -1,5 +1,5 @@
 // Vertical Video Maker - 1つの16:9動画から9:16縦動画を作成
-// Safari・iOS・Chrome・各種プレイヤー完全再生対応版
+// シーク同期・動画コマ送りエンコード修復版
 (() => {
   'use strict';
 
@@ -328,21 +328,29 @@
     }
   }
 
+  // タイムテーブル更新（シーク）を確実に同期待機
   function seekVideo(video, time) {
     return new Promise((resolve) => {
-      if (Math.abs(video.currentTime - time) < 0.01) { resolve(); return; }
-      let tid;
-      const onSeeked = () => {
-        clearTimeout(tid);
-        video.removeEventListener('seeked', onSeeked);
+      if (Math.abs(video.currentTime - time) < 0.001) {
         resolve();
+        return;
+      }
+
+      let resolved = false;
+      const done = () => {
+        if (!resolved) {
+          resolved = true;
+          video.removeEventListener('seeked', done);
+          // DOM / Video描画の同期用フラッシュ
+          setTimeout(resolve, 20);
+        }
       };
-      tid = setTimeout(() => {
-        video.removeEventListener('seeked', onSeeked);
-        resolve();
-      }, 500);
-      video.addEventListener('seeked', onSeeked, { once: true });
+
+      video.addEventListener('seeked', done, { once: true });
       video.currentTime = time;
+
+      // セーフティ用フォールバック
+      setTimeout(done, 1500);
     });
   }
 
@@ -383,7 +391,7 @@
     }
   }
 
-  // オフラインエンコード（完全互換設定）
+  // コマ送りエンコード（シーク同期修正版）
   async function exportWithWebCodecs() {
     const w = canvas.width;
     const h = canvas.height;
@@ -422,7 +430,6 @@
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: (e) => console.error('VideoEncoder error:', e)
     });
-    // 高い再生互換性を持つ H.264 Baseline/Main (avc1.420034) を指定
     videoEncoder.configure({
       codec: 'avc1.420034',
       width: w,
@@ -478,19 +485,21 @@
 
     for (let i = 0; i < totalFrames; i++) {
       const t = i / fps;
+      // タイムテーブルをシークし、フレーム更新を完全同期
       await seekVideo(state.video, t);
       drawFrameToCtx(offCtx, w, h, state.video);
 
       const timestampMicros = Math.round(t * 1_000_000);
       const videoFrame = new VideoFrame(offCanvas, { timestamp: timestampMicros });
-      videoEncoder.encode(videoFrame, { keyFrame: i % fps === 0 }); // 1秒ごとにキーフレーム設定
+      videoEncoder.encode(videoFrame, { keyFrame: i % fps === 0 });
       videoFrame.close();
 
       const pct = Math.floor(((i + 1) / totalFrames) * 100);
       progressFill.style.width = `${pct}%`;
-      progressPercent.textContent = `${pct}%`;
+      progressPercent.textContent = `${pct}% (${i + 1}/${totalFrames}コマ)`;
 
-      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      // メインスレッドに割り込んでUI描画とシーク完了を保証
+      if (i % 3 === 0) await new Promise(r => setTimeout(r, 10));
     }
 
     progressStatus.textContent = 'ファイル生成中...';
