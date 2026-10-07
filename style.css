@@ -23,7 +23,7 @@
 body {
   font-family: var(--font-family);
   background: var(--bg-primary);
-  background-image: 
+  background-image:
     radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
     radial-gradient(circle at 85% 80%, rgba(139, 92, 246, 0.12) 0%, transparent 40%);
   color: var(--text-main);
@@ -172,7 +172,8 @@ body {
   transition: all 0.2s ease;
 }
 
-.drop-zone:hover, .drop-zone.dragover {
+.drop-zone:hover,
+.drop-zone.dragover {
   border-color: var(--primary);
   background: rgba(99, 102, 241, 0.08);
 }
