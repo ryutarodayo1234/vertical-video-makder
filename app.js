@@ -1,5 +1,5 @@
 // Vertical Video Maker - 1つの16:9動画から9:16縦動画を作成
-// Safari・Chrome完全対応修正版
+// Safari・iOS・Chrome・各種プレイヤー完全再生対応版
 (() => {
   'use strict';
 
@@ -340,7 +340,7 @@
       tid = setTimeout(() => {
         video.removeEventListener('seeked', onSeeked);
         resolve();
-      }, 500); // タイムアウトを短縮しフリーズを防止
+      }, 500);
       video.addEventListener('seeked', onSeeked, { once: true });
       video.currentTime = time;
     });
@@ -383,7 +383,7 @@
     }
   }
 
-  // オフラインエンコード
+  // オフラインエンコード（完全互換設定）
   async function exportWithWebCodecs() {
     const w = canvas.width;
     const h = canvas.height;
@@ -422,11 +422,12 @@
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: (e) => console.error('VideoEncoder error:', e)
     });
+    // 高い再生互換性を持つ H.264 Baseline/Main (avc1.420034) を指定
     videoEncoder.configure({
       codec: 'avc1.420034',
       width: w,
       height: h,
-      bitrate: w >= 1080 ? 8_000_000 : 4_000_000,
+      bitrate: w >= 1080 ? 6_000_000 : 3_000_000,
       framerate: fps
     });
 
@@ -482,7 +483,7 @@
 
       const timestampMicros = Math.round(t * 1_000_000);
       const videoFrame = new VideoFrame(offCanvas, { timestamp: timestampMicros });
-      videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
+      videoEncoder.encode(videoFrame, { keyFrame: i % fps === 0 }); // 1秒ごとにキーフレーム設定
       videoFrame.close();
 
       const pct = Math.floor(((i + 1) / totalFrames) * 100);
@@ -514,12 +515,13 @@
       const stream = new MediaStream(tracks);
 
       const mimeOptions = [
+        'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
         'video/mp4;codecs=avc1',
         'video/mp4',
         'video/webm;codecs=vp9',
         'video/webm'
       ];
-      const actualMime = mimeOptions.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || '';
+      const actualMime = mimeOptions.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || 'video/mp4';
 
       let recorder;
       try {
@@ -532,10 +534,9 @@
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
       recorder.onstop = () => {
-        tracks.forEach(tr => tr.stop()); // リソース解放
-        const type = recorder.mimeType || actualMime || 'video/mp4';
-        const blob = new Blob(chunks, { type });
-        onExportComplete(blob, type.includes('webm') ? 'webm' : 'mp4');
+        tracks.forEach(tr => tr.stop());
+        const blob = new Blob(chunks, { type: actualMime.includes('webm') ? 'video/webm' : 'video/mp4' });
+        onExportComplete(blob, actualMime.includes('webm') ? 'webm' : 'mp4');
         resolve();
       };
       recorder.onerror = (e) => reject(e);
