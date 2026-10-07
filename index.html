@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vertical Video Maker - 16:9動画を縦に3つ並べて9:16に変換</title>
+  <meta name="description" content="ブラウザ上で16:9の動画を縦に3つ並べて9:16のショート・リール動画を作成するツール。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">📱</div>
+        <h1>Vertical Video Maker</h1>
+      </div>
+      <p class="tagline">16:9動画を縦に3つ並べ、上下をぼかし背景で埋めて綺麗な9:16縦動画を作成</p>
+      <div class="quick-demo-area">
+        <button id="demo-btn" class="btn btn-demo">
+          <span>✨</span> サンプル動画をセットして試す
+        </button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- 左カラム: スロット選択 & 設定 -->
+      <section class="control-panel">
+        <div class="panel-section">
+          <h2>動画スロット (上・中・下)</h2>
+          <div class="slots-container">
+            <!-- スロット 1 (上段) -->
+            <div class="slot-card" data-slot="0">
+              <div class="slot-header">
+                <span class="slot-badge">上段 (Top)</span>
+                <span class="slot-filename" id="filename-0">未選択</span>
+              </div>
+              <label class="drop-zone" id="drop-zone-0">
+                <input type="file" id="file-0" accept="video/*" class="file-input">
+                <div class="drop-content">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>動画を選択 または D&D</span>
+                </div>
+              </label>
+              <div class="slot-controls hidden" id="controls-0">
+                <div class="control-row">
+                  <label>音量</label>
+                  <input type="range" class="vol-slider" id="vol-0" min="0" max="1" step="0.05" value="1">
+                  <button class="mute-btn" id="mute-0" title="ミュート切替">🔊</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- スロット 2 (中段) -->
+            <div class="slot-card" data-slot="1">
+              <div class="slot-header">
+                <span class="slot-badge">中段 (Middle)</span>
+                <span class="slot-filename" id="filename-1">未選択</span>
+              </div>
+              <label class="drop-zone" id="drop-zone-1">
+                <input type="file" id="file-1" accept="video/*" class="file-input">
+                <div class="drop-content">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>動画を選択 または D&D</span>
+                </div>
+              </label>
+              <div class="slot-controls hidden" id="controls-1">
+                <div class="control-row">
+                  <label>音量</label>
+                  <input type="range" class="vol-slider" id="vol-1" min="0" max="1" step="0.05" value="1">
+                  <button class="mute-btn" id="mute-1" title="ミュート切替">🔊</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- スロット 3 (下段) -->
+            <div class="slot-card" data-slot="2">
+              <div class="slot-header">
+                <span class="slot-badge">下段 (Bottom)</span>
+                <span class="slot-filename" id="filename-2">未選択</span>
+              </div>
+              <label class="drop-zone" id="drop-zone-2">
+                <input type="file" id="file-2" accept="video/*" class="file-input">
+                <div class="drop-content">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>動画を選択 または D&D</span>
+                </div>
+              </label>
+              <div class="slot-controls hidden" id="controls-2">
+                <div class="control-row">
+                  <label>音量</label>
+                  <input type="range" class="vol-slider" id="vol-2" min="0" max="1" step="0.05" value="1">
+                  <button class="mute-btn" id="mute-2" title="ミュート切替">🔊</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 出力オプション設定 -->
+        <div class="panel-section settings-section">
+          <h2>出力設定</h2>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="resolution-select">出力解像度</label>
+              <select id="resolution-select">
+                <option value="1080x1920" selected>1080 × 1920 (FHD 高画質)</option>
+                <option value="720x1280">720 × 1280 (HD 高速)</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label for="duration-select">動画の長さ基準</label>
+              <select id="duration-select">
+                <option value="longest" selected>最長動画に合わせる (他はループ)</option>
+                <option value="shortest">最短動画で終了</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右カラム: プレビュー & アクション -->
+      <section class="preview-panel">
+        <div class="preview-container">
+          <div class="phone-frame">
+            <div class="phone-notch"></div>
+            <div class="canvas-wrapper">
+              <canvas id="preview-canvas" width="1080" height="1920"></canvas>
+              <div class="placeholder-overlay" id="placeholder-overlay">
+                <div class="guide-box">
+                  <p>動画をセットすると<br>9:16のプレビューが表示されます</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- プレビューコントロールバー -->
+        <div class="preview-controls">
+          <button id="play-btn" class="btn btn-secondary" disabled>
+            <span class="icon">▶</span> <span class="label">再生</span>
+          </button>
+          <div class="timeline-bar">
+            <input type="range" id="seek-bar" min="0" max="100" value="0" step="0.1" disabled>
+          </div>
+          <span class="time-label" id="time-display">00:00 / 00:00</span>
+        </div>
+
+        <!-- アクションボタン & 進捗 -->
+        <div class="action-card">
+          <button id="export-btn" class="btn btn-primary" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            9:16 動画を書き出す
+          </button>
+
+          <!-- 進捗表示バー -->
+          <div class="progress-wrap hidden" id="progress-wrap">
+            <div class="progress-info">
+              <span id="progress-status">レンダリング中...</span>
+              <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+          </div>
+
+          <!-- ダウンロードボタン -->
+          <div class="download-wrap hidden" id="download-wrap">
+            <a id="download-link" class="btn btn-download" download="vertical-video-9x16.mp4">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
+              完成した動画をダウンロード
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
