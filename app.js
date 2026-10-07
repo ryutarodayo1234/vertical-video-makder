@@ -1,5 +1,5 @@
 // Vertical Video Maker - 1つの16:9動画から9:16縦動画を作成
-// Safari完全対応版
+// Safari・Chrome完全対応修正版
 (() => {
   'use strict';
 
@@ -93,16 +93,20 @@
 
   // 動画読み込み処理
   function loadVideo(fileOrBlob, customName = null) {
+    if (state.isPlaying) pauseVideo();
     state.currentFile = fileOrBlob;
     const url = URL.createObjectURL(fileOrBlob);
     const video = document.createElement('video');
     video.crossOrigin = 'anonymous';
     video.playsInline = true;
+    video.muted = state.muted;
     video.preload = 'auto';
     video.src = url;
 
     video.onloadedmetadata = () => {
-      if (state.video) URL.revokeObjectURL(state.video.src);
+      if (state.video && state.video !== video) {
+        URL.revokeObjectURL(state.video.src);
+      }
 
       state.video = video;
       state.duration = video.duration || 0;
@@ -120,6 +124,10 @@
       seekBar.disabled = false;
       exportBtn.disabled = false;
       timeDisplay.textContent = `00:00 / ${formatTime(state.duration)}`;
+    };
+
+    video.onerror = () => {
+      alert('動画ファイルの読み込みに失敗しました。他のフォーマット(MP4等)をお試しください。');
     };
   }
 
@@ -193,24 +201,31 @@
     shareBtn.addEventListener('click', handleShareToPhotos);
   }
 
-  function togglePlay() {
+  async function togglePlay() {
     if (state.audioCtx && state.audioCtx.state === 'suspended') {
-      state.audioCtx.resume();
+      await state.audioCtx.resume();
     }
     if (state.isPlaying) {
       pauseVideo();
     } else {
-      playVideo();
+      await playVideo();
     }
   }
 
-  function playVideo() {
+  async function playVideo() {
     if (!state.video) return;
-    state.isPlaying = true;
-    playBtn.querySelector('.icon').textContent = '⏸';
-    playBtn.querySelector('.label').textContent = '一時停止';
-    if (state.video.currentTime >= state.duration) state.video.currentTime = 0;
-    state.video.play().catch(() => {});
+    if (state.video.currentTime >= state.duration) {
+      state.video.currentTime = 0;
+    }
+    try {
+      await state.video.play();
+      state.isPlaying = true;
+      playBtn.querySelector('.icon').textContent = '⏸';
+      playBtn.querySelector('.label').textContent = '一時停止';
+    } catch (err) {
+      console.warn('Playback prevented:', err);
+      state.isPlaying = false;
+    }
   }
 
   function pauseVideo() {
@@ -231,11 +246,10 @@
   }
 
   // 共通描画関数（プレビュー・エンコード両用）
-  // src: HTMLVideoElement または HTMLCanvasElement
   function drawFrameToCtx(c, w, h, src) {
     const hVid = (w * 9) / 16;
     const blankY = hVid * 3;
-    const blankH = h - blankY;
+    const blankH = Math.max(0, h - blankY);
 
     c.fillStyle = '#0a0d14';
     c.fillRect(0, 0, w, h);
@@ -264,7 +278,7 @@
 
     const srcW = src instanceof HTMLVideoElement ? src.videoWidth : src.width;
     const srcH = src instanceof HTMLVideoElement ? src.videoHeight : src.height;
-    const vidRatio = srcW / srcH;
+    const vidRatio = (srcW && srcH) ? srcW / srcH : 16 / 9;
 
     // ぼかし背景（余白部分）
     if (blankH > 0) {
@@ -276,28 +290,16 @@
       const bgX = (w - bgW) / 2;
       const bgY = blankY + (blankH - bgH) / 2;
 
+      c.save();
+      c.beginPath(); c.rect(0, blankY, w, blankH); c.clip();
       if (supportsCanvasFilter) {
-        // Chrome / Safari 18+ : ctx.filter を使用
-        c.save();
-        c.beginPath(); c.rect(0, blankY, w, blankH); c.clip();
         c.filter = 'blur(25px) brightness(0.65)';
         c.drawImage(src, bgX, bgY, bgW, bgH);
-        c.restore();
       } else {
-        // Safari 17以前: ダウンスケール→拡大でぼかし代替
-        c.save();
-        c.beginPath(); c.rect(0, blankY, w, blankH); c.clip();
-        const tmp = document.createElement('canvas');
-        tmp.width  = Math.max(1, Math.round(bgW * 0.04));
-        tmp.height = Math.max(1, Math.round(bgH * 0.04));
-        const tCtx = tmp.getContext('2d');
-        tCtx.globalAlpha = 0.65;
-        tCtx.drawImage(src, 0, 0, tmp.width, tmp.height);
-        c.imageSmoothingEnabled = true;
-        c.imageSmoothingQuality = 'low';
-        c.drawImage(tmp, bgX, bgY, bgW, bgH);
-        c.restore();
+        c.globalAlpha = 0.65;
+        c.drawImage(src, bgX, bgY, bgW, bgH);
       }
+      c.restore();
     }
 
     // 3段クリア動画
@@ -326,12 +328,19 @@
     }
   }
 
-  // シーク完了を確実に待機（Safari は seeked が遅いため2秒タイムアウト）
   function seekVideo(video, time) {
     return new Promise((resolve) => {
-      if (Math.abs(video.currentTime - time) < 0.005) { resolve(); return; }
-      const onSeeked = () => { clearTimeout(tid); resolve(); };
-      const tid = setTimeout(() => { video.removeEventListener('seeked', onSeeked); resolve(); }, 2000);
+      if (Math.abs(video.currentTime - time) < 0.01) { resolve(); return; }
+      let tid;
+      const onSeeked = () => {
+        clearTimeout(tid);
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      tid = setTimeout(() => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      }, 500); // タイムアウトを短縮しフリーズを防止
       video.addEventListener('seeked', onSeeked, { once: true });
       video.currentTime = time;
     });
@@ -349,7 +358,6 @@
     downloadWrap.classList.add('hidden');
     progressWrap.classList.remove('hidden');
 
-    // WebCodecs + Mp4Muxer によるオフラインレンダリングを試行
     const hasWebCodecs = typeof window.VideoEncoder !== 'undefined' && typeof window.Mp4Muxer !== 'undefined';
 
     try {
@@ -359,18 +367,23 @@
         await exportWithMediaRecorder();
       }
     } catch (err) {
-      console.error('Export error, fallback:', err);
-      try { await exportWithMediaRecorder(); } catch (e2) { console.error('MediaRecorder also failed:', e2); }
+      console.warn('WebCodecs failed, fallback to MediaRecorder:', err);
+      try {
+        await exportWithMediaRecorder();
+      } catch (e2) {
+        console.error('Export error:', e2);
+        alert('動画の保存に失敗しました。ブラウザを変更するか動画サイズを下げてみてください。');
+      }
     } finally {
       state.isExporting = false;
       exportBtn.disabled = false;
       playBtn.disabled = false;
       seekBar.disabled = false;
-      state.video.currentTime = 0;
+      if (state.video) state.video.currentTime = 0;
     }
   }
 
-  // オフライン・コマ送りエンコード（WebCodecs + Mp4Muxer: 完全な滑らかさ & Apple写真アプリ対応）
+  // オフラインエンコード
   async function exportWithWebCodecs() {
     const w = canvas.width;
     const h = canvas.height;
@@ -381,7 +394,6 @@
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
 
-    // 音声の事前デコード
     let audioBuffer = null;
     try {
       if (state.currentFile) {
@@ -395,7 +407,6 @@
 
     const hasAudio = audioBuffer && audioBuffer.numberOfChannels > 0 && typeof window.AudioEncoder !== 'undefined';
 
-    // MP4マルチプレクサの作成 (FastStart: Apple写真アプリで即座に認識される構造)
     const muxer = new Mp4Muxer.Muxer({
       target: new Mp4Muxer.ArrayBufferTarget(),
       video: { codec: 'avc', width: w, height: h },
@@ -407,7 +418,6 @@
       fastStart: 'in-memory'
     });
 
-    // ビデオエンコーダーの初期化
     const videoEncoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: (e) => console.error('VideoEncoder error:', e)
@@ -416,11 +426,10 @@
       codec: 'avc1.420034',
       width: w,
       height: h,
-      bitrate: w >= 1080 ? 10_000_000 : 5_000_000,
+      bitrate: w >= 1080 ? 8_000_000 : 4_000_000,
       framerate: fps
     });
 
-    // 音声エンコーダーとエンコード（映像より先に処理）
     if (hasAudio) {
       try {
         const audioEncoder = new AudioEncoder({
@@ -460,42 +469,30 @@
       }
     }
 
-    // バックグラウンド描画用の隠し canvas
-    // Safari は VideoFrame(OffscreenCanvas) 未対応 → HTMLCanvasElement を使用
     const offCanvas = document.createElement('canvas');
     offCanvas.width = w; offCanvas.height = h;
-    offCanvas.style.cssText = 'position:fixed;top:-9999px;left:-9999px;visibility:hidden';
-    document.body.appendChild(offCanvas);
     const offCtx = offCanvas.getContext('2d');
 
-    progressStatus.textContent = 'バックグラウンドレンダリング中...';
+    progressStatus.textContent = 'レンダリング中...';
 
-    try {
-      for (let i = 0; i < totalFrames; i++) {
-        const t = i / fps;
-        await seekVideo(state.video, t);
+    for (let i = 0; i < totalFrames; i++) {
+      const t = i / fps;
+      await seekVideo(state.video, t);
+      drawFrameToCtx(offCtx, w, h, state.video);
 
-        // Safari: createImageBitmap(video) は非対応のため直接 canvas へ描画
-        drawFrameToCtx(offCtx, w, h, state.video);
+      const timestampMicros = Math.round(t * 1_000_000);
+      const videoFrame = new VideoFrame(offCanvas, { timestamp: timestampMicros });
+      videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
+      videoFrame.close();
 
-        const timestampMicros = Math.round(t * 1_000_000);
-        // Safari は VideoFrame(HTMLCanvasElement) に対応
-        const videoFrame = new VideoFrame(offCanvas, { timestamp: timestampMicros });
-        videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
-        videoFrame.close();
+      const pct = Math.floor(((i + 1) / totalFrames) * 100);
+      progressFill.style.width = `${pct}%`;
+      progressPercent.textContent = `${pct}%`;
 
-        const pct = Math.floor(((i + 1) / totalFrames) * 100);
-        progressFill.style.width = `${pct}%`;
-        progressPercent.textContent = `${pct}% (${i + 1}/${totalFrames}コマ)`;
-
-        // Safari は setTimeout で event loop を明け渡さないと UI が固まる
-        if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
-      }
-    } finally {
-      document.body.removeChild(offCanvas);
+      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
-    progressStatus.textContent = 'MP4ファイル生成中...';
+    progressStatus.textContent = 'ファイル生成中...';
     await videoEncoder.flush();
     muxer.finalize();
 
@@ -503,7 +500,7 @@
     onExportComplete(mp4Blob, 'mp4');
   }
 
-  // フォールバック: MediaRecorderによるリアルタイム録画（Safari/古いブラウザ向け）
+  // フォールバック: MediaRecorder
   function exportWithMediaRecorder() {
     return new Promise((resolve, reject) => {
       progressStatus.textContent = 'リアルタイム記録中...';
@@ -516,27 +513,26 @@
       }
       const stream = new MediaStream(tracks);
 
-      // Safari/Chrome/Firefox 全対応のMIME自動検出
       const mimeOptions = [
-        'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
-        'video/mp4;codecs="avc1.42E01E"',
+        'video/mp4;codecs=avc1',
         'video/mp4',
-        'video/webm;codecs="vp9,opus"',
+        'video/webm;codecs=vp9',
         'video/webm'
       ];
       const actualMime = mimeOptions.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || '';
 
       let recorder;
       try {
-        recorder = new MediaRecorder(stream, { mimeType: actualMime, videoBitsPerSecond: 8_000_000 });
+        recorder = new MediaRecorder(stream, { mimeType: actualMime, videoBitsPerSecond: 5_000_000 });
       } catch (e) {
-        try { recorder = new MediaRecorder(stream, { videoBitsPerSecond: 8_000_000 }); }
+        try { recorder = new MediaRecorder(stream, { videoBitsPerSecond: 5_000_000 }); }
         catch (e2) { reject(e2); return; }
       }
 
       const chunks = [];
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
       recorder.onstop = () => {
+        tracks.forEach(tr => tr.stop()); // リソース解放
         const type = recorder.mimeType || actualMime || 'video/mp4';
         const blob = new Blob(chunks, { type });
         onExportComplete(blob, type.includes('webm') ? 'webm' : 'mp4');
@@ -556,14 +552,16 @@
         progressPercent.textContent = `${pct}%`;
         if (elapsed >= totalMs) {
           clearInterval(interval);
-          recorder.stop();
           pauseVideo();
+          setTimeout(() => {
+            if (recorder.state !== 'inactive') recorder.stop();
+          }, 200);
         }
       }, 100);
     });
   }
 
-  // 書き出し完了時の処理
+  // 書き出し完了処理
   function onExportComplete(blob, ext) {
     state.generatedBlob = blob;
     const url = URL.createObjectURL(blob);
@@ -580,7 +578,7 @@
     downloadWrap.classList.remove('hidden');
   }
 
-  // Apple写真アプリへの保存（Web Share API）
+  // 共有
   async function handleShareToPhotos() {
     if (!state.generatedBlob) return;
     const file = new File([state.generatedBlob], `vertical-9x16-${Date.now()}.mp4`, { type: 'video/mp4' });
@@ -593,9 +591,7 @@
           text: '写真アプリに保存するには「ビデオを保存」を選択してください。'
         });
       } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.warn('Share error:', err);
-        }
+        if (err.name !== 'AbortError') console.warn('Share error:', err);
       }
     } else {
       alert('このブラウザ/端末は写真アプリへの直接共有に対応していません。\n「ファイルとして保存」をクリックしてダウンロードしてください。');
