@@ -406,14 +406,31 @@ body {
   box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
 }
 
+.download-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.btn-share {
+  background: linear-gradient(135deg, #0071e3, #0056b3);
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.4);
+}
+
+.btn-share:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 113, 227, 0.55);
+}
+
 .btn-download {
-  background: linear-gradient(135deg, #10b981, #059669);
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
+  color: #e2e8f0;
 }
 
 .btn-download:hover {
+  background: rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
 }
 
 /* 進捗バー */

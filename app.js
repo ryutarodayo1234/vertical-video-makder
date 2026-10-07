@@ -1,22 +1,25 @@
-// Vertical Video Maker - 1つの16:9動画を縦に3段配置（上下ブラー背景＋単一音声）
+// Vertical Video Maker - 1つの16:9動画から9:16縦動画を作成
+// オフライン・コマ送りエンコード（ガタつき完全防止）& Apple写真アプリ保存対応
 (() => {
   'use strict';
 
-  // 状態管理 (単一動画・単一音声にスリム化)
+  // 状態管理
   const state = {
     video: null,
+    currentFile: null,
     volume: 1,
     muted: false,
     isPlaying: false,
     duration: 0,
     isExporting: false,
+    generatedBlob: null,
     audioCtx: null,
     audioSource: null,
     gainNode: null,
     audioDest: null
   };
 
-  // DOM要素
+  // DOM要素取得
   const canvas = document.getElementById('preview-canvas');
   const ctx = canvas.getContext('2d');
   const placeholderOverlay = document.getElementById('placeholder-overlay');
@@ -38,6 +41,7 @@
   const progressPercent = document.getElementById('progress-percent');
   const progressStatus = document.getElementById('progress-status');
   const downloadWrap = document.getElementById('download-wrap');
+  const shareBtn = document.getElementById('share-btn');
   const downloadLink = document.getElementById('download-link');
   const demoBtn = document.getElementById('demo-btn');
 
@@ -54,7 +58,7 @@
     canvas.height = h;
   }
 
-  // ファイルアップロード関連イベント
+  // ファイル入力イベント
   function setupUploadEvents() {
     fileInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) loadVideo(e.target.files[0]);
@@ -80,6 +84,7 @@
 
   // 動画読み込み処理
   function loadVideo(fileOrBlob, customName = null) {
+    state.currentFile = fileOrBlob;
     const url = URL.createObjectURL(fileOrBlob);
     const video = document.createElement('video');
     video.crossOrigin = 'anonymous';
@@ -109,7 +114,7 @@
     };
   }
 
-  // デモ用動画の読み込み
+  // デモ用動画読み込み
   async function loadDemoVideo() {
     if (demoBtn) demoBtn.disabled = true;
     try {
@@ -124,7 +129,7 @@
     }
   }
 
-  // Web Audioのセットアップ (単一音声)
+  // Web Audioセットアップ (プレビュー用)
   function initAudioNode(video) {
     if (!state.audioCtx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -176,6 +181,7 @@
     });
 
     exportBtn.addEventListener('click', startExport);
+    shareBtn.addEventListener('click', handleShareToPhotos);
   }
 
   function togglePlay() {
@@ -206,19 +212,25 @@
     state.video.pause();
   }
 
-  // リアルタイム描画ループ
+  // リアルタイム描画ループ（プレビュー用）
   function renderLoop() {
-    drawFrame();
-    updateTimeline();
+    if (!state.isExporting) {
+      drawFrame();
+      updateTimeline();
+    }
     requestAnimationFrame(renderLoop);
   }
 
-  // 単一の動画から上・中・下の3段を描画
+  // 3段すべてクリアな16:9動画（計1822.5px）＋ 一番下の余白（97.5px）にぼかし背景を配置
   function drawFrame() {
     const w = canvas.width;
     const h = canvas.height;
-    const slotHeight = h / 3;
-    const slotRatio = w / slotHeight; // 1080 / 640 = 1.6875
+
+    // 16:9動画の1段あたりの高さ (1080px幅なら 607.5px)
+    const hVid = (w * 9) / 16;
+    const total3VidHeight = hVid * 3; // 1822.5px
+    const blankY = total3VidHeight;   // 最下部余白開始位置 (1822.5px)
+    const blankH = h - blankY;        // 最下部余白の高さ (97.5px)
 
     ctx.fillStyle = '#0a0d14';
     ctx.fillRect(0, 0, w, h);
@@ -226,61 +238,77 @@
     const vid = state.video;
     const isReady = vid && vid.readyState >= 2;
 
-    for (let i = 0; i < 3; i++) {
-      const slotY = i * slotHeight;
+    if (isReady) {
+      const vidRatio = vid.videoWidth / vid.videoHeight;
 
-      if (isReady) {
-        const vidRatio = vid.videoWidth / vid.videoHeight;
-
-        // 1. 背景レイヤー: 拡大＆ぼかし（Blur 25px + 減光）で上下の余白を埋める
+      // 1. 一番下の動画の下にできた空白（余白）にぼかし背景を配置
+      if (blankH > 0) {
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, slotY, w, slotHeight);
-        ctx.clip(); // スロット範囲外にはみ出さないようクリッピング
+        ctx.rect(0, blankY, w, blankH);
+        ctx.clip(); // 余白エリアにのみクリッピング
 
-        const scale = 1.25;
+        const scale = 1.3;
+        const slotRatio = w / blankH;
         let bgW, bgH;
         if (vidRatio > slotRatio) {
-          bgH = slotHeight * scale;
+          bgH = blankH * scale;
           bgW = bgH * vidRatio;
         } else {
           bgW = w * scale;
           bgH = bgW / vidRatio;
         }
         const bgX = (w - bgW) / 2;
-        const bgY = slotY + (slotHeight - bgH) / 2;
+        const bgY = blankY + (blankH - bgH) / 2;
 
         ctx.filter = 'blur(25px) brightness(0.65)';
         ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, bgX, bgY, bgW, bgH);
         ctx.restore();
+      }
 
-        // 2. 前景レイヤー: 左右ピッタリ（幅100%）、クロップなしで16:9比率を完全保持
-        const fgW = w;
-        const fgH = fgW / vidRatio; // 16:9なら約 607.5px
-        const fgY = slotY + (slotHeight - fgH) / 2;
+      // 2. 3本のクリアな16:9通常動画を上から順に隙間なく連続描画 (一番下もぼかさない！)
+      // 上段 (1本目)
+      ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, 0, w, hVid);
+      // 中段 (2本目)
+      ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, hVid, w, hVid);
+      // 下段 (3本目 - ぼかさずクリアなまま！)
+      ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, hVid * 2, w, hVid);
 
-        ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, fgY, fgW, fgH);
-      } else {
-        // 未読み込み時のプレースホルダー
+      // 各段の境界線
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.fillRect(0, hVid - 1, w, 2);
+      ctx.fillRect(0, hVid * 2 - 1, w, 2);
+      if (blankH > 0) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, blankY - 1, w, 2);
+      }
+    } else {
+      // 未読み込み時のプレースホルダー枠
+      const sections = [
+        { y: 0, height: hVid, label: '上段 (16:9 通常クリア)' },
+        { y: hVid, height: hVid, label: '中段 (16:9 通常クリア)' },
+        { y: hVid * 2, height: hVid, label: '下段 (16:9 通常クリア)' },
+        { y: blankY, height: blankH, label: '最下部余白 (ぼかし背景)' }
+      ];
+
+      sections.forEach((sec, idx) => {
+        if (sec.height <= 0) return;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-        ctx.fillRect(4, slotY + 4, w - 8, slotHeight - 8);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.font = `${Math.floor(w / 35)}px sans-serif`;
+        ctx.fillRect(4, sec.y + 4, w - 8, sec.height - 8);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.font = `${Math.floor(w / 38)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const labels = ['上段 (Top)', '中段 (Middle)', '下段 (Bottom)'];
-        ctx.fillText(labels[i], w / 2, slotY + slotHeight / 2);
-      }
+        ctx.fillText(sec.label, w / 2, sec.y + sec.height / 2);
 
-      // スロット境界ライン
-      if (i > 0) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(0, slotY - 1, w, 2);
-      }
+        if (idx > 0) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          ctx.fillRect(0, sec.y - 1, w, 2);
+        }
+      });
     }
   }
 
-  // 再生タイムライン更新
   function updateTimeline() {
     if (!state.isPlaying || !state.video || state.duration === 0) return;
 
@@ -295,9 +323,33 @@
     }
   }
 
-  // 動画書き出し（MediaRecorder + 単一音声ストリーム）
+  // シーク完了を確実に待機するヘルパー
+  function seekVideo(video, time) {
+    return new Promise((resolve) => {
+      if (Math.abs(video.currentTime - time) < 0.005) {
+        resolve();
+        return;
+      }
+      let timeoutId;
+      const onSeeked = () => {
+        clearTimeout(timeoutId);
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      timeoutId = setTimeout(() => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      }, 1000); // 1秒タイムアウト安全策
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.currentTime = time;
+    });
+  }
+
+  // 書き出しエントリーポイント
   async function startExport() {
     if (state.isExporting || !state.video) return;
+    pauseVideo();
+
     state.isExporting = true;
     exportBtn.disabled = true;
     playBtn.disabled = true;
@@ -305,85 +357,234 @@
     downloadWrap.classList.add('hidden');
     progressWrap.classList.remove('hidden');
 
-    if (state.audioCtx && state.audioCtx.state === 'suspended') {
-      await state.audioCtx.resume();
-    }
+    // WebCodecs + Mp4Muxer によるオフラインレンダリングを試行
+    const hasWebCodecs = typeof window.VideoEncoder !== 'undefined' && typeof window.Mp4Muxer !== 'undefined';
 
-    state.video.currentTime = 0;
-
-    // ストリーム合成 (Canvas映像 + 単一の音声トラック)
-    const canvasStream = canvas.captureStream(30);
-    const combinedTracks = [...canvasStream.getVideoTracks()];
-
-    if (state.audioDest && state.audioDest.stream.getAudioTracks().length > 0) {
-      combinedTracks.push(...state.audioDest.stream.getAudioTracks());
-    }
-
-    const finalStream = new MediaStream(combinedTracks);
-
-    const mimeTypes = [
-      'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
-      'video/mp4',
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm'
-    ];
-    const selectedMime = mimeTypes.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
-    const isMp4 = selectedMime.includes('mp4');
-
-    const recorder = new MediaRecorder(finalStream, {
-      mimeType: selectedMime,
-      videoBitsPerSecond: canvas.width >= 1080 ? 8000000 : 4000000
-    });
-
-    const chunks = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: selectedMime });
-      const videoUrl = URL.createObjectURL(blob);
-      const ext = isMp4 ? 'mp4' : 'webm';
-
-      downloadLink.href = videoUrl;
-      downloadLink.download = `vertical-9x16-${Date.now()}.${ext}`;
-      downloadLink.innerHTML = `
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
-        完成した動画を保存 (${ext.toUpperCase()})
-      `;
-
-      progressWrap.classList.add('hidden');
-      downloadWrap.classList.remove('hidden');
-
+    try {
+      if (hasWebCodecs) {
+        await exportWithWebCodecs();
+      } else {
+        await exportWithMediaRecorder();
+      }
+    } catch (err) {
+      console.error('Export error, fallback:', err);
+      await exportWithMediaRecorder();
+    } finally {
       state.isExporting = false;
       exportBtn.disabled = false;
       playBtn.disabled = false;
       seekBar.disabled = false;
-      pauseVideo();
+      state.video.currentTime = 0;
+      drawFrame();
+    }
+  }
+
+  // オフライン・コマ送りエンコード（WebCodecs + Mp4Muxer: 完全な滑らかさ & Apple写真アプリ対応）
+  async function exportWithWebCodecs() {
+    const w = canvas.width;
+    const h = canvas.height;
+    const fps = 30;
+    const totalFrames = Math.max(1, Math.round(state.duration * fps));
+
+    progressStatus.textContent = '動画解析中...';
+    progressFill.style.width = '0%';
+    progressPercent.textContent = '0%';
+
+    // 音声の事前デコード
+    let audioBuffer = null;
+    try {
+      if (state.currentFile) {
+        const arrayBuf = await state.currentFile.arrayBuffer();
+        const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioBuffer = await tempCtx.decodeAudioData(arrayBuf);
+      }
+    } catch (e) {
+      console.warn('Audio decoding skipped:', e);
+    }
+
+    const hasAudio = audioBuffer && audioBuffer.numberOfChannels > 0 && typeof window.AudioEncoder !== 'undefined';
+
+    // MP4マルチプレクサの作成 (FastStart: Apple写真アプリで即座に認識される構造)
+    const muxer = new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      video: {
+        codec: 'avc',
+        width: w,
+        height: h
+      },
+      audio: hasAudio ? {
+        codec: 'aac',
+        numberOfChannels: Math.min(2, audioBuffer.numberOfChannels),
+        sampleRate: audioBuffer.sampleRate
+      } : undefined,
+      fastStart: 'in-memory'
+    });
+
+    // ビデオエンコーダーの初期化
+    const videoEncoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: (e) => console.error('VideoEncoder error:', e)
+    });
+
+    // 互換性の高いコーデック設定 (Baseline/Main Profile)
+    const videoConfig = {
+      codec: 'avc1.420034',
+      width: w,
+      height: h,
+      bitrate: w >= 1080 ? 10_000_000 : 5_000_000,
+      framerate: fps
     };
+    videoEncoder.configure(videoConfig);
 
-    recorder.start(100);
-    playVideo();
+    // 音声エンコーダーの初期化とエンコード
+    if (hasAudio) {
+      try {
+        const audioEncoder = new AudioEncoder({
+          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+          error: (e) => console.error('AudioEncoder error:', e)
+        });
+        const channels = Math.min(2, audioBuffer.numberOfChannels);
+        audioEncoder.configure({
+          codec: 'mp4a.40.2',
+          numberOfChannels: channels,
+          sampleRate: audioBuffer.sampleRate,
+          bitrate: 128_000
+        });
 
-    const startTime = performance.now();
-    const totalMs = state.duration * 1000;
-
-    const progressInterval = setInterval(() => {
-      if (!state.isExporting) {
-        clearInterval(progressInterval);
-        return;
+        const chunkSize = 2048;
+        const totalSamples = audioBuffer.length;
+        for (let offset = 0; offset < totalSamples; offset += chunkSize) {
+          const count = Math.min(chunkSize, totalSamples - offset);
+          const planarData = new Float32Array(count * channels);
+          for (let ch = 0; ch < channels; ch++) {
+            planarData.set(audioBuffer.getChannelData(ch).subarray(offset, offset + count), ch * count);
+          }
+          const audioData = new AudioData({
+            format: 'f32-planar',
+            sampleRate: audioBuffer.sampleRate,
+            numberOfFrames: count,
+            numberOfChannels: channels,
+            timestamp: Math.round((offset / audioBuffer.sampleRate) * 1_000_000),
+            data: planarData
+          });
+          audioEncoder.encode(audioData);
+          audioData.close();
+        }
+        await audioEncoder.flush();
+      } catch (err) {
+        console.warn('Audio encode failed:', err);
       }
-      const elapsed = performance.now() - startTime;
-      const percent = Math.min(100, Math.floor((elapsed / totalMs) * 100));
-      progressFill.style.width = `${percent}%`;
-      progressPercent.textContent = `${percent}%`;
+    }
 
-      if (elapsed >= totalMs) {
-        clearInterval(progressInterval);
-        recorder.stop();
+    // コマ送り（フレーム・バイ・フレーム）レンダリング
+    progressStatus.textContent = 'コマ送りレンダリング中 (ガタつきなし)...';
+
+    for (let i = 0; i < totalFrames; i++) {
+      const t = i / fps;
+      await seekVideo(state.video, t);
+      drawFrame();
+
+      const timestampMicros = Math.round(t * 1_000_000);
+      const videoFrame = new VideoFrame(canvas, { timestamp: timestampMicros });
+      videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
+      videoFrame.close();
+
+      const pct = Math.floor(((i + 1) / totalFrames) * 100);
+      progressFill.style.width = `${pct}%`;
+      progressPercent.textContent = `${pct}% (${i + 1}/${totalFrames}コマ)`;
+    }
+
+    progressStatus.textContent = 'MP4ファイル生成中...';
+    await videoEncoder.flush();
+    muxer.finalize();
+
+    const buffer = muxer.target.buffer;
+    const mp4Blob = new Blob([buffer], { type: 'video/mp4' });
+    onExportComplete(mp4Blob, 'mp4');
+  }
+
+  // フォールバック: MediaRecorderによるリアルタイム録画
+  function exportWithMediaRecorder() {
+    return new Promise((resolve) => {
+      progressStatus.textContent = 'リアルタイム記録中...';
+      state.video.currentTime = 0;
+
+      const canvasStream = canvas.captureStream(30);
+      const tracks = [...canvasStream.getVideoTracks()];
+      if (state.audioDest && state.audioDest.stream.getAudioTracks().length > 0) {
+        tracks.push(...state.audioDest.stream.getAudioTracks());
       }
-    }, 100);
+      const stream = new MediaStream(tracks);
+
+      const mime = 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"';
+      const actualMime = MediaRecorder.isTypeSupported(mime) ? mime : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: actualMime, videoBitsPerSecond: 8000000 });
+
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const isMp4 = actualMime.includes('mp4');
+        const blob = new Blob(chunks, { type: actualMime });
+        onExportComplete(blob, isMp4 ? 'mp4' : 'webm');
+        resolve();
+      };
+
+      recorder.start(100);
+      playVideo();
+
+      const start = performance.now();
+      const totalMs = state.duration * 1000;
+      const interval = setInterval(() => {
+        const elapsed = performance.now() - start;
+        const pct = Math.min(100, Math.floor((elapsed / totalMs) * 100));
+        progressFill.style.width = `${pct}%`;
+        progressPercent.textContent = `${pct}%`;
+        if (elapsed >= totalMs) {
+          clearInterval(interval);
+          recorder.stop();
+          pauseVideo();
+        }
+      }, 100);
+    });
+  }
+
+  // 書き出し完了時の処理
+  function onExportComplete(blob, ext) {
+    state.generatedBlob = blob;
+    const url = URL.createObjectURL(blob);
+    const filename = `vertical-9x16-${Date.now()}.${ext}`;
+
+    downloadLink.href = url;
+    downloadLink.download = filename;
+    downloadLink.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      ファイルとして保存 (${ext.toUpperCase()})
+    `;
+
+    progressWrap.classList.add('hidden');
+    downloadWrap.classList.remove('hidden');
+  }
+
+  // Apple写真アプリへの保存（Web Share API）
+  async function handleShareToPhotos() {
+    if (!state.generatedBlob) return;
+    const file = new File([state.generatedBlob], `vertical-9x16-${Date.now()}.mp4`, { type: 'video/mp4' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: '9:16縦動画',
+          text: '写真アプリに保存するには「ビデオを保存」を選択してください。'
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.warn('Share error:', err);
+        }
+      }
+    } else {
+      alert('このブラウザ/端末は写真アプリへの直接共有に対応していません。\n「ファイルとして保存」をクリックしてダウンロードしてください。');
+    }
   }
 
   function formatTime(sec) {
