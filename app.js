@@ -1,7 +1,16 @@
 // Vertical Video Maker - 1つの16:9動画から9:16縦動画を作成
-// オフライン・コマ送りエンコード（ガタつき完全防止）& Apple写真アプリ保存対応
+// Safari完全対応版
 (() => {
   'use strict';
+
+  // Safari判定 & ctx.filter サポート確認
+  const supportsCanvasFilter = (() => {
+    try {
+      const t = document.createElement('canvas').getContext('2d');
+      t.filter = 'blur(1px)';
+      return t.filter === 'blur(1px)';
+    } catch { return false; }
+  })();
 
   // 状態管理
   const state = {
@@ -215,98 +224,92 @@
   // リアルタイム描画ループ（プレビュー用）
   function renderLoop() {
     if (!state.isExporting) {
-      drawFrame();
+      drawFrameToCtx(ctx, canvas.width, canvas.height, state.video);
       updateTimeline();
     }
     requestAnimationFrame(renderLoop);
   }
 
-  // 3段すべてクリアな16:9動画（計1822.5px）＋ 一番下の余白（97.5px）にぼかし背景を配置
-  function drawFrame() {
-    const w = canvas.width;
-    const h = canvas.height;
-
-    // 16:9動画の1段あたりの高さ (1080px幅なら 607.5px)
+  // 共通描画関数（プレビュー・エンコード両用）
+  // src: HTMLVideoElement または HTMLCanvasElement
+  function drawFrameToCtx(c, w, h, src) {
     const hVid = (w * 9) / 16;
-    const total3VidHeight = hVid * 3; // 1822.5px
-    const blankY = total3VidHeight;   // 最下部余白開始位置 (1822.5px)
-    const blankH = h - blankY;        // 最下部余白の高さ (97.5px)
+    const blankY = hVid * 3;
+    const blankH = h - blankY;
 
-    ctx.fillStyle = '#0a0d14';
-    ctx.fillRect(0, 0, w, h);
+    c.fillStyle = '#0a0d14';
+    c.fillRect(0, 0, w, h);
 
-    const vid = state.video;
-    const isReady = vid && vid.readyState >= 2;
+    const isReady = src instanceof HTMLVideoElement ? src.readyState >= 2 : !!src;
 
-    if (isReady) {
-      const vidRatio = vid.videoWidth / vid.videoHeight;
-
-      // 1. 一番下の動画の下にできた空白（余白）にぼかし背景を配置
-      if (blankH > 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, blankY, w, blankH);
-        ctx.clip(); // 余白エリアにのみクリッピング
-
-        const scale = 1.3;
-        const slotRatio = w / blankH;
-        let bgW, bgH;
-        if (vidRatio > slotRatio) {
-          bgH = blankH * scale;
-          bgW = bgH * vidRatio;
-        } else {
-          bgW = w * scale;
-          bgH = bgW / vidRatio;
-        }
-        const bgX = (w - bgW) / 2;
-        const bgY = blankY + (blankH - bgH) / 2;
-
-        ctx.filter = 'blur(25px) brightness(0.65)';
-        ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, bgX, bgY, bgW, bgH);
-        ctx.restore();
-      }
-
-      // 2. 3本のクリアな16:9通常動画を上から順に隙間なく連続描画 (一番下もぼかさない！)
-      // 上段 (1本目)
-      ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, 0, w, hVid);
-      // 中段 (2本目)
-      ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, hVid, w, hVid);
-      // 下段 (3本目 - ぼかさずクリアなまま！)
-      ctx.drawImage(vid, 0, 0, vid.videoWidth, vid.videoHeight, 0, hVid * 2, w, hVid);
-
-      // 各段の境界線
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.fillRect(0, hVid - 1, w, 2);
-      ctx.fillRect(0, hVid * 2 - 1, w, 2);
-      if (blankH > 0) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(0, blankY - 1, w, 2);
-      }
-    } else {
-      // 未読み込み時のプレースホルダー枠
+    if (!isReady) {
       const sections = [
-        { y: 0, height: hVid, label: '上段 (16:9 通常クリア)' },
-        { y: hVid, height: hVid, label: '中段 (16:9 通常クリア)' },
-        { y: hVid * 2, height: hVid, label: '下段 (16:9 通常クリア)' },
-        { y: blankY, height: blankH, label: '最下部余白 (ぼかし背景)' }
+        { y: 0,        height: hVid,   label: '上段 (16:9 通常クリア)' },
+        { y: hVid,     height: hVid,   label: '中段 (16:9 通常クリア)' },
+        { y: hVid * 2, height: hVid,   label: '下段 (16:9 通常クリア)' },
+        { y: blankY,   height: blankH, label: '最下部余白 (ぼかし背景)' }
       ];
-
       sections.forEach((sec, idx) => {
         if (sec.height <= 0) return;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-        ctx.fillRect(4, sec.y + 4, w - 8, sec.height - 8);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-        ctx.font = `${Math.floor(w / 38)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(sec.label, w / 2, sec.y + sec.height / 2);
-
-        if (idx > 0) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-          ctx.fillRect(0, sec.y - 1, w, 2);
-        }
+        c.fillStyle = 'rgba(255,255,255,0.03)';
+        c.fillRect(4, sec.y + 4, w - 8, sec.height - 8);
+        c.fillStyle = 'rgba(255,255,255,0.25)';
+        c.font = `${Math.floor(w / 38)}px sans-serif`;
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(sec.label, w / 2, sec.y + sec.height / 2);
+        if (idx > 0) { c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillRect(0, sec.y - 1, w, 2); }
       });
+      return;
     }
+
+    const srcW = src instanceof HTMLVideoElement ? src.videoWidth : src.width;
+    const srcH = src instanceof HTMLVideoElement ? src.videoHeight : src.height;
+    const vidRatio = srcW / srcH;
+
+    // ぼかし背景（余白部分）
+    if (blankH > 0) {
+      const scale = 1.3;
+      const slotRatio = w / blankH;
+      let bgW, bgH;
+      if (vidRatio > slotRatio) { bgH = blankH * scale; bgW = bgH * vidRatio; }
+      else { bgW = w * scale; bgH = bgW / vidRatio; }
+      const bgX = (w - bgW) / 2;
+      const bgY = blankY + (blankH - bgH) / 2;
+
+      if (supportsCanvasFilter) {
+        // Chrome / Safari 18+ : ctx.filter を使用
+        c.save();
+        c.beginPath(); c.rect(0, blankY, w, blankH); c.clip();
+        c.filter = 'blur(25px) brightness(0.65)';
+        c.drawImage(src, bgX, bgY, bgW, bgH);
+        c.restore();
+      } else {
+        // Safari 17以前: ダウンスケール→拡大でぼかし代替
+        c.save();
+        c.beginPath(); c.rect(0, blankY, w, blankH); c.clip();
+        const tmp = document.createElement('canvas');
+        tmp.width  = Math.max(1, Math.round(bgW * 0.04));
+        tmp.height = Math.max(1, Math.round(bgH * 0.04));
+        const tCtx = tmp.getContext('2d');
+        tCtx.globalAlpha = 0.65;
+        tCtx.drawImage(src, 0, 0, tmp.width, tmp.height);
+        c.imageSmoothingEnabled = true;
+        c.imageSmoothingQuality = 'low';
+        c.drawImage(tmp, bgX, bgY, bgW, bgH);
+        c.restore();
+      }
+    }
+
+    // 3段クリア動画
+    c.drawImage(src, 0, 0, w, hVid);
+    c.drawImage(src, 0, hVid, w, hVid);
+    c.drawImage(src, 0, hVid * 2, w, hVid);
+
+    // 境界線
+    c.fillStyle = 'rgba(0,0,0,0.4)';
+    c.fillRect(0, hVid - 1, w, 2);
+    c.fillRect(0, hVid * 2 - 1, w, 2);
+    if (blankH > 0) { c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillRect(0, blankY - 1, w, 2); }
   }
 
   function updateTimeline() {
@@ -323,23 +326,12 @@
     }
   }
 
-  // シーク完了を確実に待機するヘルパー
+  // シーク完了を確実に待機（Safari は seeked が遅いため2秒タイムアウト）
   function seekVideo(video, time) {
     return new Promise((resolve) => {
-      if (Math.abs(video.currentTime - time) < 0.005) {
-        resolve();
-        return;
-      }
-      let timeoutId;
-      const onSeeked = () => {
-        clearTimeout(timeoutId);
-        video.removeEventListener('seeked', onSeeked);
-        resolve();
-      };
-      timeoutId = setTimeout(() => {
-        video.removeEventListener('seeked', onSeeked);
-        resolve();
-      }, 1000); // 1秒タイムアウト安全策
+      if (Math.abs(video.currentTime - time) < 0.005) { resolve(); return; }
+      const onSeeked = () => { clearTimeout(tid); resolve(); };
+      const tid = setTimeout(() => { video.removeEventListener('seeked', onSeeked); resolve(); }, 2000);
       video.addEventListener('seeked', onSeeked, { once: true });
       video.currentTime = time;
     });
@@ -368,14 +360,13 @@
       }
     } catch (err) {
       console.error('Export error, fallback:', err);
-      await exportWithMediaRecorder();
+      try { await exportWithMediaRecorder(); } catch (e2) { console.error('MediaRecorder also failed:', e2); }
     } finally {
       state.isExporting = false;
       exportBtn.disabled = false;
       playBtn.disabled = false;
       seekBar.disabled = false;
       state.video.currentTime = 0;
-      drawFrame();
     }
   }
 
@@ -469,102 +460,52 @@
       }
     }
 
-    // OffscreenCanvas でバックグラウンドレンダリング（プレビューに影響なし）
-    const offscreen = new OffscreenCanvas(w, h);
-    const offCtx = offscreen.getContext('2d');
+    // バックグラウンド描画用の隠し canvas
+    // Safari は VideoFrame(OffscreenCanvas) 未対応 → HTMLCanvasElement を使用
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = w; offCanvas.height = h;
+    offCanvas.style.cssText = 'position:fixed;top:-9999px;left:-9999px;visibility:hidden';
+    document.body.appendChild(offCanvas);
+    const offCtx = offCanvas.getContext('2d');
 
     progressStatus.textContent = 'バックグラウンドレンダリング中...';
 
-    for (let i = 0; i < totalFrames; i++) {
-      const t = i / fps;
+    try {
+      for (let i = 0; i < totalFrames; i++) {
+        const t = i / fps;
+        await seekVideo(state.video, t);
 
-      // シークして実際のフレームがデコードされるまで待機
-      await seekVideo(state.video, t);
+        // Safari: createImageBitmap(video) は非対応のため直接 canvas へ描画
+        drawFrameToCtx(offCtx, w, h, state.video);
 
-      // createImageBitmap でビデオフレームが確実にデコードされたことを保証
-      const bmp = await createImageBitmap(state.video);
+        const timestampMicros = Math.round(t * 1_000_000);
+        // Safari は VideoFrame(HTMLCanvasElement) に対応
+        const videoFrame = new VideoFrame(offCanvas, { timestamp: timestampMicros });
+        videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
+        videoFrame.close();
 
-      // OffscreenCanvas に描画（プレビューキャンバスとは独立）
-      drawFrameToCtx(offCtx, w, h, bmp);
-      bmp.close();
+        const pct = Math.floor(((i + 1) / totalFrames) * 100);
+        progressFill.style.width = `${pct}%`;
+        progressPercent.textContent = `${pct}% (${i + 1}/${totalFrames}コマ)`;
 
-      const timestampMicros = Math.round(t * 1_000_000);
-      const videoFrame = new VideoFrame(offscreen, { timestamp: timestampMicros });
-      videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
-      videoFrame.close();
-
-      const pct = Math.floor(((i + 1) / totalFrames) * 100);
-      progressFill.style.width = `${pct}%`;
-      progressPercent.textContent = `${pct}% (${i + 1}/${totalFrames}コマ)`;
-
-      // UIをブロックしないよう定期的にブレーク
-      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        // Safari は setTimeout で event loop を明け渡さないと UI が固まる
+        if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+    } finally {
+      document.body.removeChild(offCanvas);
     }
 
     progressStatus.textContent = 'MP4ファイル生成中...';
     await videoEncoder.flush();
     muxer.finalize();
 
-    const buffer = muxer.target.buffer;
-    const mp4Blob = new Blob([buffer], { type: 'video/mp4' });
+    const mp4Blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
     onExportComplete(mp4Blob, 'mp4');
   }
 
-  // ImageBitmap を使ってオフスクリーンに描画（drawFrameの汎用版）
-  function drawFrameToCtx(offCtx, w, h, bmp) {
-    const hVid = (w * 9) / 16;
-    const total3VidHeight = hVid * 3;
-    const blankY = total3VidHeight;
-    const blankH = h - blankY;
-
-    offCtx.fillStyle = '#0a0d14';
-    offCtx.fillRect(0, 0, w, h);
-
-    if (!bmp) return;
-
-    const vidRatio = bmp.width / bmp.height;
-
-    // ぼかし背景（余白部分）
-    if (blankH > 0) {
-      offCtx.save();
-      offCtx.beginPath();
-      offCtx.rect(0, blankY, w, blankH);
-      offCtx.clip();
-      const scale = 1.3;
-      const slotRatio = w / blankH;
-      let bgW, bgH;
-      if (vidRatio > slotRatio) {
-        bgH = blankH * scale;
-        bgW = bgH * vidRatio;
-      } else {
-        bgW = w * scale;
-        bgH = bgW / vidRatio;
-      }
-      const bgX = (w - bgW) / 2;
-      const bgY = blankY + (blankH - bgH) / 2;
-      offCtx.filter = 'blur(25px) brightness(0.65)';
-      offCtx.drawImage(bmp, bgX, bgY, bgW, bgH);
-      offCtx.restore();
-    }
-
-    // 3段クリア動画
-    offCtx.drawImage(bmp, 0, 0, w, hVid);
-    offCtx.drawImage(bmp, 0, hVid, w, hVid);
-    offCtx.drawImage(bmp, 0, hVid * 2, w, hVid);
-
-    // 境界線
-    offCtx.fillStyle = 'rgba(0,0,0,0.4)';
-    offCtx.fillRect(0, hVid - 1, w, 2);
-    offCtx.fillRect(0, hVid * 2 - 1, w, 2);
-    if (blankH > 0) {
-      offCtx.fillStyle = 'rgba(0,0,0,0.5)';
-      offCtx.fillRect(0, blankY - 1, w, 2);
-    }
-  }
-
-  // フォールバック: MediaRecorderによるリアルタイム録画
+  // フォールバック: MediaRecorderによるリアルタイム録画（Safari/古いブラウザ向け）
   function exportWithMediaRecorder() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       progressStatus.textContent = 'リアルタイム記録中...';
       state.video.currentTime = 0;
 
@@ -575,18 +516,33 @@
       }
       const stream = new MediaStream(tracks);
 
-      const mime = 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"';
-      const actualMime = MediaRecorder.isTypeSupported(mime) ? mime : 'video/webm';
-      const recorder = new MediaRecorder(stream, { mimeType: actualMime, videoBitsPerSecond: 8000000 });
+      // Safari/Chrome/Firefox 全対応のMIME自動検出
+      const mimeOptions = [
+        'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+        'video/mp4;codecs="avc1.42E01E"',
+        'video/mp4',
+        'video/webm;codecs="vp9,opus"',
+        'video/webm'
+      ];
+      const actualMime = mimeOptions.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || '';
+
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: actualMime, videoBitsPerSecond: 8_000_000 });
+      } catch (e) {
+        try { recorder = new MediaRecorder(stream, { videoBitsPerSecond: 8_000_000 }); }
+        catch (e2) { reject(e2); return; }
+      }
 
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
       recorder.onstop = () => {
-        const isMp4 = actualMime.includes('mp4');
-        const blob = new Blob(chunks, { type: actualMime });
-        onExportComplete(blob, isMp4 ? 'mp4' : 'webm');
+        const type = recorder.mimeType || actualMime || 'video/mp4';
+        const blob = new Blob(chunks, { type });
+        onExportComplete(blob, type.includes('webm') ? 'webm' : 'mp4');
         resolve();
       };
+      recorder.onerror = (e) => reject(e);
 
       recorder.start(100);
       playVideo();
